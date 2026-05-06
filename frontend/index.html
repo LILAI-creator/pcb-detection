@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PCB缺陷检测 - 检测</title>
+<base href="/static/">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="navbar-brand">
+    <div class="icon">P</div>
+    PCB缺陷检测
+  </div>
+  <div class="navbar-links">
+    <a href="index.html" class="active">检测</a>
+    <a href="history.html">历史记录</a>
+    <a href="stats.html">统计面板</a>
+  </div>
+</nav>
+
+<div class="container">
+  <div class="flex gap-24" style="align-items:flex-start">
+    <div style="flex:1;min-width:0">
+      <div class="card mb-16">
+        <div class="card-title">上传PCB板图像</div>
+        <div class="upload-zone" id="uploadZone">
+          <div class="icon">📁</div>
+          <div class="title">点击或拖拽上传图像</div>
+          <div class="hint">支持 JPG / PNG / BMP，最大 20MB</div>
+        </div>
+        <input type="file" id="fileInput" accept=".jpg,.jpeg,.png,.bmp" style="display:none">
+      </div>
+
+      <div class="card">
+        <div class="flex justify-between items-center mb-16">
+          <div class="card-title" style="margin-bottom:0">检测结果</div>
+          <div id="resultActions" class="flex gap-8 hidden">
+            <button class="btn btn-secondary btn-sm" id="btnResetView">重置视图</button>
+            <button class="btn btn-secondary btn-sm" id="btnExportImage">导出图片</button>
+            <button class="btn btn-secondary btn-sm" id="btnExportJSON">导出JSON</button>
+          </div>
+        </div>
+        <div id="canvasPlaceholder" class="empty-state">
+          <div class="icon">📷</div>
+          <div>上传PCB板图像开始检测</div>
+        </div>
+        <div class="canvas-container hidden">
+          <canvas id="detectCanvas"></canvas>
+        </div>
+        <div id="resultMeta" class="hidden flex gap-16 mt-16" style="font-size:13px;color:var(--text-secondary)">
+          <span>检测时间: <strong id="metaTime" style="color:var(--text-primary)"></strong></span>
+          <span>缺陷数量: <strong id="metaDefects" style="color:var(--danger)"></strong></span>
+        </div>
+      </div>
+    </div>
+
+    <div style="width:300px;flex-shrink:0">
+      <div class="card">
+        <div class="flex justify-between items-center mb-16">
+          <div class="card-title" style="margin-bottom:0">缺陷列表</div>
+          <span class="badge badge-danger" id="defectCount">0</span>
+        </div>
+        <div class="detection-list" id="detectionList">
+          <div class="empty-state">
+            <div class="icon" style="font-size:24px;opacity:0.3">📋</div>
+            <div style="font-size:13px">暂无检测结果</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mt-16">
+        <div class="card-title">缺陷类别图例</div>
+        <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
+          <div class="flex items-center gap-8"><span style="width:10px;height:10px;border-radius:50%;background:#FF3B30;display:inline-block"></span> missing_hole (缺孔)</div>
+          <div class="flex items-center gap-8"><span style="width:10px;height:10px;border-radius:50%;background:#FF9500;display:inline-block"></span> mouse_bite (鼠咬)</div>
+          <div class="flex items-center gap-8"><span style="width:10px;height:10px;border-radius:50%;background:#FFCC00;display:inline-block"></span> open_circuit (断路)</div>
+          <div class="flex items-center gap-8"><span style="width:10px;height:10px;border-radius:50%;background:#34C759;display:inline-block"></span> short (短路)</div>
+          <div class="flex items-center gap-8"><span style="width:10px;height:10px;border-radius:50%;background:#007AFF;display:inline-block"></span> spur (毛刺)</div>
+          <div class="flex items-center gap-8"><span style="width:10px;height:10px;border-radius:50%;background:#AF52DE;display:inline-block"></span> spurious_copper (杂铜)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/upload.js"></script>
+<script src="js/canvas.js"></script>
+<script src="js/detect.js"></script>
+<script>
+  Toast.init();
+  Detector.init();
+</script>
+</body>
+</html>

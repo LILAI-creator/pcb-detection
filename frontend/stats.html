@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PCB缺陷检测 - 统计面板</title>
+<base href="/static/">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="navbar-brand">
+    <div class="icon">P</div>
+    PCB缺陷检测
+  </div>
+  <div class="navbar-links">
+    <a href="index.html">检测</a>
+    <a href="history.html">历史记录</a>
+    <a href="stats.html" class="active">统计面板</a>
+  </div>
+</nav>
+
+<div class="container">
+  <div class="stat-cards" id="statCards">
+    <div class="stat-card">
+      <div class="label">总检测次数</div>
+      <div class="value" id="statTotal">-</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">缺陷检出率</div>
+      <div class="value" id="statDefectRate">-</div>
+      <div class="trend" id="statDefectTrend" style="color:var(--text-secondary)"></div>
+    </div>
+    <div class="stat-card">
+      <div class="label">总缺陷数量</div>
+      <div class="value" id="statDefectTotal">-</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">最常见缺陷</div>
+      <div class="value" id="statTopDefect" style="font-size:20px">-</div>
+    </div>
+  </div>
+
+  <div class="flex gap-24" style="align-items:flex-start">
+    <div style="flex:1">
+      <div class="chart-container">
+        <div class="card-title">缺陷类别分布</div>
+        <canvas id="pieChart"></canvas>
+      </div>
+    </div>
+    <div style="flex:1">
+      <div class="chart-container">
+        <div class="card-title">检测趋势（近7天）</div>
+        <canvas id="lineChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="chart-container">
+    <div class="card-title">各类缺陷数量对比</div>
+    <canvas id="barChart"></canvas>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+  var StatsPage = (function() {
+    function init() {
+      loadStats();
+      loadTrend();
+    }
+
+    function loadStats() {
+      API.getStats().then(function(data) {
+        document.getElementById('statTotal').textContent = data.total_detections || 0;
+        var rate = data.defect_rate ? (data.defect_rate * 100).toFixed(1) + '%' : '0%';
+        document.getElementById('statDefectRate').textContent = rate;
+        document.getElementById('statDefectTotal').textContent = data.total_defects || 0;
+        document.getElementById('statTopDefect').textContent = data.top_defect_class || '-';
+
+        if (data.class_distribution) {
+          drawPieChart(data.class_distribution);
+          drawBarChart(data.class_distribution);
+        }
+      }).catch(function() {
+        drawEmptyCharts();
+      });
+    }
+
+    function loadTrend() {
+      API.getStatsTrend({ days: 7 }).then(function(data) {
+        if (data.trend) {
+          drawLineChart(data.trend);
+        }
+      }).catch(function() {
+        drawEmptyLineChart();
+      });
+    }
+
+    function drawPieChart(distribution) {
+      var canvas = document.getElementById('pieChart');
+      var ctx = canvas.getContext('2d');
+      canvas.width = canvas.parentElement.clientWidth - 48;
+      canvas.height = 280;
+
+      var colors = ['#FF3B30','#FF9500','#FFCC00','#34C759','#007AFF','#AF52DE','#5856D6'];
+      var entries = Object.entries(distribution);
+      var total = entries.reduce(function(s, e) { return s + e[1]; }, 0);
+      if (total === 0) return;
+
+      var cx = canvas.width / 2;
+      var cy = canvas.height / 2;
+      var r = Math.min(cx, cy) - 40;
+
+      var startAngle = -Math.PI / 2;
+      entries.forEach(function(entry, i) {
+        var slice = (entry[1] / total) * 2 * Math.PI;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.arc(cx, cy, r, startAngle, startAngle + slice);
+        ctx.fillStyle = colors[i % colors.length];
+        ctx.fill();
+
+        var midAngle = startAngle + slice / 2;
+        var labelR = r * 0.65;
+        var lx = cx + Math.cos(midAngle) * labelR;
+        var ly = cy + Math.sin(midAngle) * labelR;
+        var pct = ((entry[1] / total) * 100).toFixed(1) + '%';
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 11px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(pct, lx, ly);
+
+        startAngle += slice;
+      });
+
+      var legendX = 10;
+      var legendY = canvas.height - entries.length * 18 - 5;
+      entries.forEach(function(entry, i) {
+        ctx.fillStyle = colors[i % colors.length];
+        ctx.fillRect(legendX, legendY + i * 18, 10, 10);
+        ctx.fillStyle = '#1D1D1F';
+        ctx.font = '11px -apple-system, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(entry[0] + ' (' + entry[1] + ')', legendX + 16, legendY + i * 18 + 9);
+      });
+    }
+
+    function drawBarChart(distribution) {
+      var canvas = document.getElementById('barChart');
+      var ctx = canvas.getContext('2d');
+      canvas.width = canvas.parentElement.clientWidth - 48;
+      canvas.height = 260;
+
+      var colors = ['#FF3B30','#FF9500','#FFCC00','#34C759','#007AFF','#AF52DE','#5856D6'];
+      var entries = Object.entries(distribution);
+      var maxVal = Math.max.apply(null, entries.map(function(e) { return e[1]; }));
+      if (maxVal === 0) maxVal = 1;
+
+      var padding = { top: 20, right: 20, bottom: 60, left: 50 };
+      var chartW = canvas.width - padding.left - padding.right;
+      var chartH = canvas.height - padding.top - padding.bottom;
+      var barW = Math.min(40, (chartW / entries.length) * 0.6);
+      var gap = (chartW - barW * entries.length) / (entries.length + 1);
+
+      entries.forEach(function(entry, i) {
+        var x = padding.left + gap + i * (barW + gap);
+        var h = (entry[1] / maxVal) * chartH;
+        var y = padding.top + chartH - h;
+
+        ctx.fillStyle = colors[i % colors.length];
+        ctx.beginPath();
+        roundRect(ctx, x, y, barW, h, 4);
+        ctx.fill();
+
+        ctx.fillStyle = '#1D1D1F';
+        ctx.font = '11px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(entry[1], x + barW / 2, y - 6);
+
+        ctx.save();
+        ctx.translate(x + barW / 2, padding.top + chartH + 12);
+        ctx.rotate(Math.PI / 6);
+        ctx.fillStyle = '#86868B';
+        ctx.font = '10px -apple-system, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(entry[0], 0, 0);
+        ctx.restore();
+      });
+    }
+
+    function drawLineChart(trend) {
+      var canvas = document.getElementById('lineChart');
+      var ctx = canvas.getContext('2d');
+      canvas.width = canvas.parentElement.clientWidth - 48;
+      canvas.height = 280;
+
+      var padding = { top: 20, right: 20, bottom: 40, left: 50 };
+      var chartW = canvas.width - padding.left - padding.right;
+      var chartH = canvas.height - padding.top - padding.bottom;
+
+      var labels = trend.map(function(t) { return t.date; });
+      var values = trend.map(function(t) { return t.count; });
+      var maxVal = Math.max.apply(null, values);
+      if (maxVal === 0) maxVal = 1;
+
+      ctx.strokeStyle = '#E5E5EA';
+      ctx.lineWidth = 1;
+      for (var i = 0; i <= 4; i++) {
+        var y = padding.top + (chartH / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(padding.left, y);
+        ctx.lineTo(canvas.width - padding.right, y);
+        ctx.stroke();
+
+        ctx.fillStyle = '#86868B';
+        ctx.font = '10px -apple-system, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(Math.round(maxVal - (maxVal / 4) * i), padding.left - 8, y + 4);
+      }
+
+      ctx.beginPath();
+      ctx.strokeStyle = '#0071E3';
+      ctx.lineWidth = 2;
+      ctx.lineJoin = 'round';
+      values.forEach(function(v, i) {
+        var x = padding.left + (chartW / (values.length - 1)) * i;
+        var y = padding.top + chartH - (v / maxVal) * chartH;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      values.forEach(function(v, i) {
+        var x = padding.left + (chartW / (values.length - 1)) * i;
+        var y = padding.top + chartH - (v / maxVal) * chartH;
+        ctx.beginPath();
+        ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = '#0071E3';
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(x, y, 2, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      labels.forEach(function(label, i) {
+        var x = padding.left + (chartW / (labels.length - 1)) * i;
+        ctx.fillStyle = '#86868B';
+        ctx.font = '10px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(label.substring(5), x, canvas.height - padding.bottom + 20);
+      });
+    }
+
+    function roundRect(ctx, x, y, w, h, r) {
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h);
+      ctx.lineTo(x, y + h);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+    }
+
+    function drawEmptyCharts() {
+      ['pieChart','barChart'].forEach(function(id) {
+        var canvas = document.getElementById(id);
+        var ctx = canvas.getContext('2d');
+        canvas.width = canvas.parentElement.clientWidth - 48;
+        canvas.height = 280;
+        ctx.fillStyle = '#86868B';
+        ctx.font = '14px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('暂无数据', canvas.width / 2, canvas.height / 2);
+      });
+    }
+
+    function drawEmptyLineChart() {
+      var canvas = document.getElementById('lineChart');
+      var ctx = canvas.getContext('2d');
+      canvas.width = canvas.parentElement.clientWidth - 48;
+      canvas.height = 280;
+      ctx.fillStyle = '#86868B';
+      ctx.font = '14px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('暂无数据', canvas.width / 2, canvas.height / 2);
+    }
+
+    return { init: init };
+  })();
+
+  StatsPage.init();
+</script>
+</body>
+</html>

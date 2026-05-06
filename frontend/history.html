@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PCB缺陷检测 - 历史记录</title>
+<base href="/static/">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="navbar-brand">
+    <div class="icon">P</div>
+    PCB缺陷检测
+  </div>
+  <div class="navbar-links">
+    <a href="index.html">检测</a>
+    <a href="history.html" class="active">历史记录</a>
+    <a href="stats.html">统计面板</a>
+  </div>
+</nav>
+
+<div class="container">
+  <div class="card">
+    <div class="card-title">历史记录</div>
+
+    <div class="filter-bar">
+      <select id="filterClass">
+        <option value="">全部缺陷类别</option>
+        <option value="missing_hole">missing_hole (缺孔)</option>
+        <option value="mouse_bite">mouse_bite (鼠咬)</option>
+        <option value="open_circuit">open_circuit (断路)</option>
+        <option value="short">short (短路)</option>
+        <option value="spur">spur (毛刺)</option>
+        <option value="spurious_copper">spurious_copper (杂铜)</option>
+      </select>
+      <input type="date" id="filterStartDate" title="开始日期">
+      <input type="date" id="filterEndDate" title="结束日期">
+      <button class="btn btn-primary btn-sm" id="btnFilter">筛选</button>
+      <button class="btn btn-secondary btn-sm" id="btnResetFilter">重置</button>
+    </div>
+
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>检测时间</th>
+            <th>缺陷数量</th>
+            <th>缺陷类别</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="historyBody">
+          <tr>
+            <td colspan="5" class="text-center" style="padding:48px;color:var(--text-secondary)">
+              暂无历史记录
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="pagination" id="pagination"></div>
+  </div>
+</div>
+
+<div id="detailModal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;display:flex;align-items:center;justify-content:center">
+  <div class="card" style="width:800px;max-width:90vw;max-height:85vh;overflow-y:auto">
+    <div class="flex justify-between items-center mb-16">
+      <div class="card-title" style="margin-bottom:0">检测详情</div>
+      <button class="btn btn-secondary btn-sm" id="btnCloseModal">关闭</button>
+    </div>
+    <div id="detailContent"></div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+  var HistoryPage = (function() {
+    var currentPage = 1;
+    var pageSize = 10;
+    var totalPages = 1;
+
+    function init() {
+      loadHistory();
+      document.getElementById('btnFilter').addEventListener('click', function() {
+        currentPage = 1;
+        loadHistory();
+      });
+      document.getElementById('btnResetFilter').addEventListener('click', function() {
+        document.getElementById('filterClass').value = '';
+        document.getElementById('filterStartDate').value = '';
+        document.getElementById('filterEndDate').value = '';
+        currentPage = 1;
+        loadHistory();
+      });
+      document.getElementById('btnCloseModal').addEventListener('click', closeModal);
+      document.getElementById('detailModal').addEventListener('click', function(e) {
+        if (e.target === this) closeModal();
+      });
+    }
+
+    function getFilters() {
+      return {
+        defectClass: document.getElementById('filterClass').value,
+        startDate: document.getElementById('filterStartDate').value,
+        endDate: document.getElementById('filterEndDate').value
+      };
+    }
+
+    function loadHistory() {
+      var filters = getFilters();
+      API.getHistory({
+        page: currentPage,
+        pageSize: pageSize,
+        defectClass: filters.defectClass,
+        startDate: filters.startDate,
+        endDate: filters.endDate
+      }).then(function(data) {
+        renderTable(data.items || []);
+        totalPages = data.total_pages || 1;
+        renderPagination();
+      }).catch(function(err) {
+        document.getElementById('historyBody').innerHTML =
+          '<tr><td colspan="5" class="text-center" style="padding:48px;color:var(--danger)">' +
+          (err.message || '加载失败') + '</td></tr>';
+      });
+    }
+
+    function renderTable(items) {
+      var tbody = document.getElementById('historyBody');
+      if (!items || items.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center" style="padding:48px;color:var(--text-secondary)">暂无历史记录</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = items.map(function(item) {
+        var classes = (item.defects || []).map(function(d) { return d.class; });
+        var uniqueClasses = classes.filter(function(v, i, a) { return a.indexOf(v) === i; });
+        var classBadges = uniqueClasses.map(function(c) {
+          return '<span class="badge badge-primary" style="margin-right:4px">' + c + '</span>';
+        }).join('');
+
+        return '<tr>' +
+          '<td style="font-family:monospace;font-size:12px;color:var(--text-secondary)">' + item.id.substring(0,8) + '</td>' +
+          '<td>' + new Date(item.timestamp).toLocaleString('zh-CN') + '</td>' +
+          '<td><span class="badge badge-danger">' + (item.defects ? item.defects.length : 0) + '</span></td>' +
+          '<td>' + classBadges + '</td>' +
+          '<td><button class="btn btn-secondary btn-sm" onclick="HistoryPage.viewDetail(\'' + item.id + '\')">查看详情</button></td>' +
+        '</tr>';
+      }).join('');
+    }
+
+    function renderPagination() {
+      var el = document.getElementById('pagination');
+      if (totalPages <= 1) { el.innerHTML = ''; return; }
+
+      var html = '<button ' + (currentPage <= 1 ? 'disabled' : '') + ' onclick="HistoryPage.goPage(' + (currentPage-1) + ')">‹</button>';
+
+      var start = Math.max(1, currentPage - 2);
+      var end = Math.min(totalPages, currentPage + 2);
+      for (var i = start; i <= end; i++) {
+        html += '<button class="' + (i === currentPage ? 'active' : '') + '" onclick="HistoryPage.goPage(' + i + ')">' + i + '</button>';
+      }
+
+      html += '<button ' + (currentPage >= totalPages ? 'disabled' : '') + ' onclick="HistoryPage.goPage(' + (currentPage+1) + ')">›</button>';
+      el.innerHTML = html;
+    }
+
+    function goPage(page) {
+      currentPage = page;
+      loadHistory();
+    }
+
+    function viewDetail(id) {
+      API.getHistoryDetail(id).then(function(data) {
+        var modal = document.getElementById('detailModal');
+        var content = document.getElementById('detailContent');
+
+        var defectsHtml = (data.defects || []).map(function(d, i) {
+          return '<div class="detection-item"><div class="color-dot" style="background:' + getColor(d.class) + '"></div>' +
+            '<div class="info"><div class="class-name">' + d.class + '</div>' +
+            '<div class="confidence">置信度: ' + (d.confidence * 100).toFixed(1) + '%</div></div></div>';
+        }).join('');
+
+        content.innerHTML =
+          '<div style="margin-bottom:16px"><img src="' + API.getResultImage(data.result_image_url) + '" style="width:100%;border-radius:12px"></div>' +
+          '<div style="font-size:14px;margin-bottom:8px">检测时间: ' + new Date(data.timestamp).toLocaleString('zh-CN') + '</div>' +
+          '<div style="font-size:14px;margin-bottom:16px">缺陷数量: <strong style="color:var(--danger)">' + (data.defects ? data.defects.length : 0) + '</strong></div>' +
+          '<div class="detection-list">' + (defectsHtml || '<div class="empty-state">无缺陷</div>') + '</div>';
+
+        modal.classList.remove('hidden');
+        modal.style.display = 'flex';
+      }).catch(function(err) {
+        alert(err.message || '加载详情失败');
+      });
+    }
+
+    function closeModal() {
+      var modal = document.getElementById('detailModal');
+      modal.classList.add('hidden');
+      modal.style.display = '';
+    }
+
+    function getColor(className) {
+      var colors = {
+        'missing_hole': '#FF3B30', 'mouse_bite': '#FF9500', 'open_circuit': '#FFCC00',
+        'short': '#34C759', 'spur': '#007AFF', 'spurious_copper': '#AF52DE'
+      };
+      return colors[className] || '#5856D6';
+    }
+
+    return { init: init, goPage: goPage, viewDetail: viewDetail };
+  })();
+
+  HistoryPage.init();
+</script>
+</body>
+</html>
