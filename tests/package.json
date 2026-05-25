@@ -1,0 +1,17 @@
+{
+  "name": "tests",
+  "version": "1.0.0",
+  "main": "run_tests.js",
+  "scripts": {
+    "test": "node run_tests.js",
+    "test:cli": "newman run PCB_Defect_Detection.postman_collection.json -e PCB_Defect_Detection.postman_environment.json --delay-request 500"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "newman": "^6.2.2",
+    "newman-reporter-htmlextra": "^1.23.1"
+  }
+}

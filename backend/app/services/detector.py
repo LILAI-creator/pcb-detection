@@ -20,16 +20,18 @@ _YOLO_SCRIPT = r"""
 import sys
 import json
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 image_path = sys.argv[1]
 model_path = sys.argv[2]
 conf = float(sys.argv[3])
 iou = float(sys.argv[4])
 
+import torch
+device = "0" if torch.cuda.is_available() else "cpu"
+
 from ultralytics import YOLO
 model = YOLO(model_path)
-results = model.predict(source=image_path, conf=conf, iou=iou, device="cpu", verbose=False)
+results = model.predict(source=image_path, conf=conf, iou=iou, device=device, verbose=False)
 
 r = results[0]
 boxes = r.boxes
@@ -65,11 +67,10 @@ def load_model(model_path: Optional[str] = None):
         result = subprocess.run(
             [sys.executable, "-c", "import ultralytics; print('ok')"],
             capture_output=True, text=True, timeout=30,
-            env={**os.environ, "CUDA_VISIBLE_DEVICES": ""},
         )
         if "ok" in result.stdout:
             _model_available = True
-            logger.info(f"YOLOv8 model available at: {path} (subprocess mode)")
+            logger.info(f"YOLOv8 model available at: {path} (subprocess mode, GPU auto-detect)")
         else:
             _model_available = False
             logger.warning("ultralytics import failed in subprocess. Running in mock mode.")
@@ -99,7 +100,6 @@ def detect(
         result = subprocess.run(
             [sys.executable, "-c", _YOLO_SCRIPT, tmp_path, use_model, str(conf), str(iou)],
             capture_output=True, text=True, timeout=120,
-            env={**os.environ, "CUDA_VISIBLE_DEVICES": ""},
         )
 
         try:
