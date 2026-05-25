@@ -11,8 +11,9 @@ from pathlib import Path
 from app.config import CORS_ORIGINS, UPLOADS_DIR, RESULTS_DIR
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
-from app.api import detect, history, stats
+from app.api import detect, history, stats, auth, camera, model
 from app.services.detector import load_model, is_loaded
+from app.database import init_db
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,6 +24,10 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logger.info("Initializing database...")
+    init_db()
+    logger.info("Database initialized")
+
     logger.info("Loading YOLOv8 model...")
     load_model()
     if is_loaded():
@@ -51,6 +56,9 @@ app.add_middleware(
 app.include_router(detect.router, prefix="/api")
 app.include_router(history.router, prefix="/api")
 app.include_router(stats.router, prefix="/api")
+app.include_router(auth.router, prefix="/api/auth")
+app.include_router(camera.router, prefix="/api/camera")
+app.include_router(model.router, prefix="/api")
 
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 app.mount("/results", StaticFiles(directory=str(RESULTS_DIR)), name="results")
@@ -67,7 +75,7 @@ async def root():
 
 @app.get("/{page_name}")
 async def serve_page(page_name: str):
-    if FRONTEND_DIR.exists() and page_name in ("history.html", "stats.html"):
+    if FRONTEND_DIR.exists() and page_name in ("history.html", "stats.html", "login.html", "register.html", "camera.html", "models.html"):
         return FileResponse(str(FRONTEND_DIR / page_name))
     from fastapi.responses import JSONResponse
     return JSONResponse(status_code=404, content={"detail": "Not found"})

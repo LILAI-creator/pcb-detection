@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PCB缺陷检测 - 模型管理</title>
+<base href="/static/">
+<link rel="stylesheet" href="css/style.css">
+<style>
+.upload-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius-lg);
+  padding: 32px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color var(--transition);
+  margin-bottom: 24px;
+}
+.upload-zone:hover, .upload-zone.dragover {
+  border-color: var(--primary);
+}
+.upload-zone .icon { font-size: 40px; opacity: 0.4; margin-bottom: 8px; }
+.upload-zone .text { font-size: 14px; color: var(--text-secondary); }
+.upload-zone input[type="file"] { display: none; }
+.model-item {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: 8px;
+  gap: 12px;
+}
+.model-item.active {
+  border-color: var(--primary);
+  background: rgba(0,122,255,0.05);
+}
+.model-item .model-icon {
+  width: 36px; height: 36px;
+  background: var(--surface-alt);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; flex-shrink: 0;
+}
+.model-item .model-info { flex: 1; min-width: 0; }
+.model-item .model-name { font-size: 14px; font-weight: 500; }
+.model-item .model-meta { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.model-item .badge-active {
+  font-size: 11px; background: var(--primary); color: #fff;
+  padding: 2px 8px; border-radius: 4px; font-weight: 500;
+}
+.model-item .btn { flex-shrink: 0; }
+.progress-bar { width: 100%; height: 4px; background: var(--border); border-radius: 2px; margin-top: 8px; display: none; }
+.progress-bar .fill { height: 100%; background: var(--primary); border-radius: 2px; width: 0%; transition: width 0.3s; }
+</style>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="navbar-brand"><div class="icon">P</div>PCB缺陷检测</div>
+  <div class="navbar-links">
+    <a href="index.html">检测</a>
+    <a href="history.html">历史记录</a>
+    <a href="stats.html">统计面板</a>
+    <a href="camera.html">实时检测</a>
+    <a href="models.html" class="active">模型管理</a>
+    <span id="userInfo" style="display:flex;align-items:center;gap:8px;padding-left:16px;border-left:1px solid var(--border);margin-left:8px">
+      <span id="usernameDisplay" style="font-size:13px;color:var(--text-secondary)"></span>
+      <button class="btn btn-secondary btn-sm" id="logoutBtn">退出</button>
+    </span>
+  </div>
+</nav>
+
+<div class="container">
+  <div class="card">
+    <div class="card-title">模型管理</div>
+
+    <div class="upload-zone" id="uploadZone">
+      <div class="icon">📤</div>
+      <div class="text">点击或拖拽上传 YOLO 模型文件 (.pt)，最大 200MB</div>
+      <input type="file" id="modelFile" accept=".pt">
+    </div>
+    <div class="progress-bar" id="progressBar"><div class="fill" id="progressFill"></div></div>
+
+    <div id="modelList"></div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+if (!API.isLoggedIn()) { window.location.href = 'login.html'; }
+else {
+  document.getElementById('usernameDisplay').textContent = localStorage.getItem('pcb_username') || '';
+  document.getElementById('logoutBtn').addEventListener('click', function() { API.logout(); });
+}
+
+function handle401(response) {
+  if (response.status === 401) {
+    localStorage.removeItem('pcb_token');
+    localStorage.removeItem('pcb_username');
+    window.location.href = 'login.html';
+    return true;
+  }
+  return false;
+}
+
+var ModelPage = (function() {
+  function init() {
+    var zone = document.getElementById('uploadZone');
+    var fileInput = document.getElementById('modelFile');
+
+    zone.addEventListener('click', function() { fileInput.click(); });
+    zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('dragover'); });
+    zone.addEventListener('dragleave', function() { zone.classList.remove('dragover'); });
+    zone.addEventListener('drop', function(e) {
+      e.preventDefault(); zone.classList.remove('dragover');
+      if (e.dataTransfer.files.length) uploadFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', function() {
+      if (fileInput.files.length) uploadFile(fileInput.files[0]);
+    });
+
+    loadModels();
+  }
+
+  function uploadFile(file) {
+    if (!file.name.endsWith('.pt')) { alert('仅支持 .pt 格式'); return; }
+    if (file.size > 200 * 1024 * 1024) { alert('文件不能超过200MB'); return; }
+
+    var pb = document.getElementById('progressBar');
+    var fill = document.getElementById('progressFill');
+    pb.style.display = 'block'; fill.style.width = '0%';
+
+    var xhr = new XMLHttpRequest();
+    var token = localStorage.getItem('pcb_token') || '';
+    xhr.open('POST', '/api/models/upload');
+    xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+
+    xhr.upload.onprogress = function(e) {
+      if (e.lengthComputable) fill.style.width = (e.loaded / e.total * 100) + '%';
+    };
+    xhr.onload = function() {
+      pb.style.display = 'none';
+      if (xhr.status === 401) {
+        localStorage.removeItem('pcb_token');
+        localStorage.removeItem('pcb_username');
+        window.location.href = 'login.html';
+        return;
+      }
+      if (xhr.status === 200) { loadModels(); }
+      else { try { alert(JSON.parse(xhr.responseText).detail || '上传失败'); } catch(e) { alert('上传失败'); } }
+    };
+    xhr.onerror = function() { pb.style.display = 'none'; alert('上传失败'); };
+
+    var fd = new FormData();
+    fd.append('file', file);
+    xhr.send(fd);
+  }
+
+  function loadModels() {
+    var token = localStorage.getItem('pcb_token') || '';
+    fetch('/api/models/list', { headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) {
+      if (handle401(r)) return;
+      return r.json();
+    })
+    .then(function(data) { if (data) renderModels(data); })
+    .catch(function() { document.getElementById('modelList').innerHTML = '<div style="color:var(--text-secondary)">加载失败</div>'; });
+  }
+
+  function renderModels(data) {
+    var items = data.items || [];
+    var currentId = data.current_model_id;
+    var el = document.getElementById('modelList');
+
+    if (!items.length) {
+      el.innerHTML = '<div style="color:var(--text-secondary);padding:16px 0">暂无模型</div>';
+      return;
+    }
+
+    el.innerHTML = items.map(function(m) {
+      var sizeStr = (m.file_size / 1024 / 1024).toFixed(1) + ' MB';
+      var isActive = m.id === currentId;
+      var activeBadge = isActive ? '<span class="badge-active">使用中</span>' : '';
+      var switchBtn = !isActive ? '<button class="btn btn-primary btn-sm" onclick="ModelPage.switchModel(' + m.id + ')">使用</button>' : '';
+      var deleteBtn = !m.is_default && !isActive ? '<button class="btn btn-secondary btn-sm" onclick="ModelPage.deleteModel(' + m.id + ')">删除</button>' : '';
+      var icon = m.is_default ? '📦' : '🧠';
+
+      return '<div class="model-item' + (isActive ? ' active' : '') + '">' +
+        '<div class="model-icon">' + icon + '</div>' +
+        '<div class="model-info">' +
+          '<div class="model-name">' + m.name + '</div>' +
+          '<div class="model-meta">' + sizeStr + ' · ' + m.created_at.substring(0, 10) + '</div>' +
+        '</div>' +
+        activeBadge + switchBtn + deleteBtn +
+      '</div>';
+    }).join('');
+  }
+
+  function switchModel(id) {
+    var token = localStorage.getItem('pcb_token') || '';
+    fetch('/api/models/switch?model_id=' + id, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token }
+    })
+    .then(function(r) {
+      if (handle401(r)) return;
+      return r.json();
+    })
+    .then(function(data) { if (data) loadModels(); })
+    .catch(function() { alert('切换失败'); });
+  }
+
+  function deleteModel(id) {
+    if (!confirm('确定删除此模型？')) return;
+    var token = localStorage.getItem('pcb_token') || '';
+    fetch('/api/models/' + id, {
+      method: 'DELETE',
+      headers: { 'Authorization': 'Bearer ' + token }
+    })
+    .then(function(r) {
+      if (handle401(r)) return;
+      return r.json();
+    })
+    .then(function(data) { if (data) loadModels(); })
+    .catch(function() { alert('删除失败'); });
+  }
+
+  return { init: init, switchModel: switchModel, deleteModel: deleteModel };
+})();
+
+ModelPage.init();
+</script>
+</body>
+</html>

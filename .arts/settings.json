@@ -1,4 +1,6 @@
 {
     "clawMode.mode": "editor",
-    "workbench.activityBar.location": "default"
+    "workbench.activityBar.location": "default",
+    "python-envs.defaultEnvManager": "ms-python.python:conda",
+    "python-envs.defaultPackageManager": "ms-python.python:conda"
 }

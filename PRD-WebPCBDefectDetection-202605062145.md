@@ -182,3 +182,9 @@ PCB（印制电路板）在生产过程中可能出现多种缺陷（如短路�
 | GET | `/api/stats` | 获取统计数据 |
 | GET | `/api/stats/trend` | 获取趋势数据 |
 | GET | `/api/defect-classes` | 获取缺陷类别列表 |
+
+
+
+
+
+

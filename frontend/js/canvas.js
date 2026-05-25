@@ -3,12 +3,12 @@ var CanvasRenderer = (function() {
   var highlightIndex = -1;
 
   var CLASS_COLORS = {
-    'missing_hole': '#FF3B30',
-    'mouse_bite': '#FF9500',
-    'open_circuit': '#FFCC00',
-    'short': '#34C759',
-    'spur': '#007AFF',
-    'spurious_copper': '#AF52DE',
+    'missing_hole': '#FF0000',
+    'mouse_bite': '#FFA500',
+    'open_circuit': '#FFFF00',
+    'short': '#00FF00',
+    'spur': '#FF8C00',
+    'spurious_copper': '#B400FF',
     'default': '#5856D6'
   };
 

@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PCB缺陷检测 - 实时检测</title>
+<base href="/static/">
+<link rel="stylesheet" href="css/style.css">
+<style>
+.camera-container {
+  position: relative;
+  background: #000;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  aspect-ratio: 4/3;
+  max-height: 70vh;
+}
+.camera-container video,
+.camera-container canvas {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  object-fit: contain;
+}
+.camera-overlay {
+  position: absolute;
+  top: 12px; left: 12px;
+  display: flex; gap: 8px;
+  z-index: 10;
+}
+.camera-overlay .badge {
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.camera-overlay .badge.live {
+  background: #FF3B30;
+  animation: pulse 1.5s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.camera-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  font-size: 14px;
+  gap: 12px;
+}
+.camera-placeholder .icon {
+  font-size: 48px;
+  opacity: 0.3;
+}
+.camera-controls {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.camera-controls select {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 13px;
+  min-width: 200px;
+}
+.defect-list-live {
+  margin-top: 16px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.defect-item-live {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.defect-item-live .dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.stats-row {
+  display: flex;
+  gap: 16px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.stats-row .stat {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.stats-row .stat strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+</style>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="navbar-brand">
+    <div class="icon">P</div>
+    PCB缺陷检测
+  </div>
+  <div class="navbar-links">
+    <a href="index.html">检测</a>
+    <a href="history.html">历史记录</a>
+    <a href="stats.html">统计面板</a>
+    <a href="camera.html" class="active">实时检测</a>
+    <a href="models.html">模型管理</a>
+    <span id="userInfo" style="display:flex;align-items:center;gap:8px;padding-left:16px;border-left:1px solid var(--border);margin-left:8px">
+      <span id="usernameDisplay" style="font-size:13px;color:var(--text-secondary)"></span>
+      <button class="btn btn-secondary btn-sm" id="logoutBtn">退出</button>
+    </span>
+  </div>
+</nav>
+
+<div class="container">
+  <div class="card">
+    <div class="card-title">摄像头实时检测</div>
+
+    <div class="camera-controls">
+      <select id="cameraSelect"></select>
+      <button class="btn btn-primary" id="btnStart">开始检测</button>
+      <button class="btn btn-secondary" id="btnStop" disabled>停止检测</button>
+      <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px">
+        <input type="checkbox" id="chkSave" checked> 保存到历史
+      </label>
+    </div>
+
+    <div class="camera-container" id="cameraContainer" style="margin-top:12px">
+      <video id="videoEl" autoplay playsinline muted style="display:none"></video>
+      <canvas id="canvasEl" style="display:none"></canvas>
+      <div class="camera-placeholder" id="cameraPlaceholder">
+        <div class="icon">📷</div>
+        <div>点击"开始检测"启动摄像头</div>
+      </div>
+      <div class="camera-overlay" id="cameraOverlay" style="display:none">
+        <div class="badge live">LIVE</div>
+        <div class="badge" id="fpsBadge">0 FPS</div>
+        <div class="badge" id="countBadge">0 缺陷</div>
+      </div>
+    </div>
+
+    <div class="stats-row" id="statsRow" style="display:none">
+      <div class="stat">检测帧数: <strong id="frameCount">0</strong></div>
+      <div class="stat">总缺陷: <strong id="totalDefects">0</strong></div>
+      <div class="stat">平均每帧: <strong id="avgDefects">0</strong></div>
+    </div>
+
+    <div class="defect-list-live" id="defectListLive"></div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+if (!API.isLoggedIn()) { window.location.href = 'login.html'; }
+else {
+  document.getElementById('usernameDisplay').textContent = localStorage.getItem('pcb_username') || '';
+  document.getElementById('logoutBtn').addEventListener('click', function() { API.logout(); });
+}
+
+var CameraApp = (function() {
+  var video, canvas, ctx;
+  var ws = null;
+  var streaming = false;
+  var animId = null;
+  var frameSent = 0;
+  var lastFrameTime = 0;
+  var fpsVal = 0;
+  var totalDef = 0;
+  var currentDefects = [];
+  var lastDetectResult = null;
+
+  var CLASS_COLORS = {
+    'missing_hole': '#FF0000',
+    'mouse_bite': '#FFA500',
+    'open_circuit': '#FFFF00',
+    'short': '#00FF00',
+    'spur': '#FF8C00',
+    'spurious_copper': '#B400FF',
+    'default': '#5856D6'
+  };
+
+  function getColor(cls) {
+    return CLASS_COLORS[cls] || CLASS_COLORS['default'];
+  }
+
+  function init() {
+    video = document.getElementById('videoEl');
+    canvas = document.getElementById('canvasEl');
+    ctx = canvas.getContext('2d');
+
+    document.getElementById('btnStart').addEventListener('click', startCamera);
+    document.getElementById('btnStop').addEventListener('click', stopCamera);
+
+    enumerateCameras();
+  }
+
+  function enumerateCameras() {
+    var sel = document.getElementById('cameraSelect');
+    navigator.mediaDevices.enumerateDevices().then(function(devices) {
+      sel.innerHTML = '';
+      devices.forEach(function(d) {
+        if (d.kind === 'videoinput') {
+          var opt = document.createElement('option');
+          opt.value = d.deviceId;
+          opt.text = d.label || ('Camera ' + sel.options.length);
+          sel.appendChild(opt);
+        }
+      });
+      if (sel.options.length === 0) {
+        var opt = document.createElement('option');
+        opt.text = '未检测到摄像头';
+        opt.disabled = true;
+        sel.appendChild(opt);
+      }
+    });
+  }
+
+  function startCamera() {
+    var deviceId = document.getElementById('cameraSelect').value;
+    var constraints = {
+      video: deviceId ? { deviceId: { exact: deviceId } } : true,
+      audio: false
+    };
+
+    navigator.mediaDevices.getUserMedia(constraints).then(function(stream) {
+      video.srcObject = stream;
+      video.style.display = 'block';
+      canvas.style.display = 'block';
+      document.getElementById('cameraPlaceholder').style.display = 'none';
+      document.getElementById('cameraOverlay').style.display = 'flex';
+
+      streaming = true;
+      frameSent = 0;
+      totalDef = 0;
+      currentDefects = [];
+      document.getElementById('btnStart').disabled = true;
+      document.getElementById('btnStop').disabled = false;
+      document.getElementById('statsRow').style.display = 'flex';
+
+      connectWS();
+      sendLoop();
+    }).catch(function(err) {
+      alert('无法访问摄像头: ' + err.message);
+    });
+  }
+
+  function stopCamera() {
+    streaming = false;
+    if (animId) cancelAnimationFrame(animId);
+    if (ws) { ws.close(); ws = null; }
+
+    if (video.srcObject) {
+      video.srcObject.getTracks().forEach(function(t) { t.stop(); });
+      video.srcObject = null;
+    }
+
+    video.style.display = 'none';
+    canvas.style.display = 'none';
+    document.getElementById('cameraPlaceholder').style.display = 'flex';
+    document.getElementById('cameraOverlay').style.display = 'none';
+    document.getElementById('btnStart').disabled = false;
+    document.getElementById('btnStop').disabled = true;
+  }
+
+  function connectWS() {
+    var token = localStorage.getItem('pcb_token') || '';
+    var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var url = proto + '//' + location.host + '/api/camera/ws/camera?token=' + encodeURIComponent(token);
+
+    ws = new WebSocket(url);
+    ws.onopen = function() { console.log('WS connected'); };
+    ws.onclose = function() { console.log('WS closed'); };
+    ws.onerror = function(e) { console.error('WS error', e); };
+
+    ws.onmessage = function(e) {
+      var data = JSON.parse(e.data);
+      if (data.error) return;
+
+      currentDefects = data.defects || [];
+      totalDef += data.count || 0;
+      lastDetectResult = data;
+
+      document.getElementById('countBadge').textContent = (data.count || 0) + ' 缺陷';
+      document.getElementById('totalDefects').textContent = totalDef;
+      document.getElementById('avgDefects').textContent = frameSent > 0 ? (totalDef / frameSent).toFixed(1) : '0';
+
+      renderDefectList(currentDefects);
+    };
+  }
+
+  function sendLoop() {
+    if (!streaming) return;
+
+    var now = performance.now();
+    if (now - lastFrameTime >= 300 && ws && ws.readyState === WebSocket.OPEN) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0);
+
+      var jpeg = canvas.toDataURL('image/jpeg', 0.7);
+      var b64 = jpeg.split(',')[1];
+
+      ws.send(JSON.stringify({ image: b64 }));
+      frameSent++;
+      lastFrameTime = now;
+
+      document.getElementById('frameCount').textContent = frameSent;
+      document.getElementById('fpsBadge').textContent = fpsVal + ' FPS';
+    }
+
+    drawOverlay();
+
+    if (frameSent % 10 === 0) {
+      fpsVal = Math.round(1000 / Math.max(1, (now - lastFrameTime)));
+    }
+
+    animId = requestAnimationFrame(sendLoop);
+  }
+
+  function drawOverlay() {
+    if (!currentDefects.length) return;
+
+    var cw = canvas.width;
+    var ch = canvas.height;
+    if (cw === 0 || ch === 0) return;
+
+    var vw = video.videoWidth;
+    var vh = video.videoHeight;
+    var sx = cw / vw;
+    var sy = ch / vh;
+
+    currentDefects.forEach(function(det) {
+      var bbox = det.bbox;
+      var x = bbox.x * sx;
+      var y = bbox.y * sy;
+      var w = bbox.width * sx;
+      var h = bbox.height * sy;
+      var color = getColor(det.class);
+
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, w, h);
+
+      var label = det.class + ' ' + (det.confidence * 100).toFixed(1) + '%';
+      ctx.font = 'bold 14px sans-serif';
+      var tw = ctx.measureText(label).width + 8;
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y - 20, tw, 20);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(label, x + 4, y - 5);
+    });
+  }
+
+  function renderDefectList(defects) {
+    var el = document.getElementById('defectListLive');
+    if (!defects || defects.length === 0) {
+      el.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:8px 0">未检测到缺陷</div>';
+      return;
+    }
+    el.innerHTML = defects.map(function(d) {
+      var color = getColor(d.class);
+      var conf = (d.confidence * 100).toFixed(1) + '%';
+      return '<div class="defect-item-live">' +
+        '<div class="dot" style="background:' + color + '"></div>' +
+        '<span>' + d.class + '</span>' +
+        '<span style="color:var(--text-secondary)">' + conf + '</span>' +
+      '</div>';
+    }).join('');
+  }
+
+  return { init: init };
+})();
+
+CameraApp.init();
+</script>
+</body>
+</html>

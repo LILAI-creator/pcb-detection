@@ -18,6 +18,12 @@
     <a href="index.html">检测</a>
     <a href="history.html">历史记录</a>
     <a href="stats.html" class="active">统计面板</a>
+    <a href="camera.html">实时检测</a>
+    <a href="models.html">模型管理</a>
+    <span id="userInfo" style="display:flex;align-items:center;gap:8px;padding-left:16px;border-left:1px solid var(--border);margin-left:8px">
+      <span id="usernameDisplay" style="font-size:13px;color:var(--text-secondary)"></span>
+      <button class="btn btn-secondary btn-sm" id="logoutBtn">退出</button>
+    </span>
   </div>
 </nav>
 
@@ -65,6 +71,11 @@
 
 <script src="js/api.js"></script>
 <script>
+  if (!API.isLoggedIn()) { window.location.href = 'login.html'; }
+  else {
+    document.getElementById('usernameDisplay').textContent = localStorage.getItem('pcb_username') || '';
+    document.getElementById('logoutBtn').addEventListener('click', function() { API.logout(); });
+  }
   var StatsPage = (function() {
     function init() {
       loadStats();

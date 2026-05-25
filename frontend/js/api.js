@@ -5,6 +5,10 @@ var API = (function() {
     BASE_URL = url.replace(/\/$/, '');
   }
 
+  function getToken() {
+    return localStorage.getItem('pcb_token') || '';
+  }
+
   function request(method, path, options) {
     options = options || {};
     var url = BASE_URL + path;
@@ -12,6 +16,11 @@ var API = (function() {
       method: method,
       headers: {}
     };
+
+    var token = getToken();
+    if (token) {
+      config.headers['Authorization'] = 'Bearer ' + token;
+    }
 
     if (options.body && !(options.body instanceof FormData)) {
       config.headers['Content-Type'] = 'application/json';
@@ -28,6 +37,12 @@ var API = (function() {
 
     return fetch(url, config)
       .then(function(res) {
+        if (res.status === 401) {
+          localStorage.removeItem('pcb_token');
+          localStorage.removeItem('pcb_username');
+          window.location.href = 'login.html';
+          throw { status: 401, message: '登录已过期，请重新登录' };
+        }
         if (!res.ok) {
           return res.json().then(function(err) {
             throw { status: res.status, message: err.detail || err.message || '请求失败' };
@@ -82,6 +97,24 @@ var API = (function() {
     return BASE_URL + imageUrl;
   }
 
+  function login(username, password) {
+    return request('POST', '/api/auth/login', { body: { username: username, password: password }, headers: {} });
+  }
+
+  function register(username, password) {
+    return request('POST', '/api/auth/register', { body: { username: username, password: password }, headers: {} });
+  }
+
+  function isLoggedIn() {
+    return !!getToken();
+  }
+
+  function logout() {
+    localStorage.removeItem('pcb_token');
+    localStorage.removeItem('pcb_username');
+    window.location.href = 'login.html';
+  }
+
   return {
     setBaseUrl: setBaseUrl,
     detect: detect,
@@ -90,6 +123,10 @@ var API = (function() {
     getStats: getStats,
     getStatsTrend: getStatsTrend,
     getDefectClasses: getDefectClasses,
-    getResultImage: getResultImage
+    getResultImage: getResultImage,
+    login: login,
+    register: register,
+    isLoggedIn: isLoggedIn,
+    logout: logout
   };
 })();

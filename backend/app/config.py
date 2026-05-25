@@ -29,5 +29,26 @@ DEFECT_CLASSES = {
     5: "spurious_copper",
 }
 
+DB_DRIVER = os.getenv("PCB_DB_DRIVER", "ODBC Driver 17 for SQL Server")
+DB_HOST = os.getenv("PCB_DB_HOST", "localhost\\SQLEXPRESS")
+DB_PORT = os.getenv("PCB_DB_PORT", "")
+DB_NAME = os.getenv("PCB_DB_NAME", "pcb_detector")
+DB_USER = os.getenv("PCB_DB_USER", "sa")
+DB_PASSWORD = os.getenv("PCB_DB_PASSWORD", "h4fFwT77dNQj")
+
+JWT_SECRET = os.getenv("PCB_JWT_SECRET", "pcb_detector_jwt_secret_key_2026")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_MINUTES = int(os.getenv("PCB_JWT_EXPIRE_MINUTES", "1440"))
+
+if DB_PORT:
+    _db_host_port = f"{DB_HOST},{DB_PORT}"
+else:
+    _db_host_port = DB_HOST
+
+DATABASE_URL = (
+    f"mssql+pyodbc://{DB_USER}:{DB_PASSWORD}@{_db_host_port}/{DB_NAME}"
+    f"?driver={DB_DRIVER}"
+)
+
 for d in [WEIGHTS_DIR, UPLOADS_DIR, RESULTS_DIR]:
     d.mkdir(parents=True, exist_ok=True)
